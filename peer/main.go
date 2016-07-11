@@ -492,15 +492,16 @@ func serve(args []string) error {
 
 	registerChaincodeSupport(chaincode.DefaultChain, grpcServer, secHelper)
 
+	// This peer that connected to various remote peers
 	var peerServer *peer.PeerImpl
 
 	// Create the peerServer
+	logger.Debug("Making genesis block if needed")
+	makeGenesisError := genesis.MakeGenesis()
+	if makeGenesisError != nil {
+		return makeGenesisError
+	}
 	if peer.ValidatorEnabled() {
-		logger.Debug("Running as validating peer - making genesis block if needed")
-		makeGenesisError := genesis.MakeGenesis()
-		if makeGenesisError != nil {
-			return makeGenesisError
-		}
 		logger.Debugf("Running as validating peer - installing consensus %s", viper.GetString("peer.validator.consensus"))
 		peerServer, err = peer.NewPeerWithEngine(secHelperFunc, helper.GetEngine)
 	} else {
