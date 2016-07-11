@@ -17,6 +17,7 @@ limitations under the License.
 package peer
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -249,8 +250,49 @@ func (d *Handler) beforeBlockAdded(e *fsm.Event) {
 		e.Cancel(fmt.Errorf("Received unexpected message type"))
 		return
 	}
+	if ValidatorEnabled() {
+		e.Cancel(fmt.Errorf("VP shouldn't receive SYNC_BLOCK_ADDED"))
+		return
+	}
 	// Add the block and any delta state to the ledger
-	_ = msg
+	blockState := &pb.BlockState{}
+	err := proto.Unmarshal(msg.Payload, blockState)
+	if err != nil {
+		e.Cancel(fmt.Errorf("Error unmarshalling BlockState: %s", err))
+		return
+	}
+	coord := d.Coordinator
+	blockHeight := coord.GetBlockchainSize()
+	if blockHeight <= 0 {
+		e.Cancel(fmt.Errorf("No genesis block is made"))
+		return
+	}
+	curBlock, err := coord.GetBlockByNumber(blockHeight -1)
+	if err != nil {
+		e.Cancel(fmt.Errorf("Error fetching block #%d, %s", blockHeight -1, err))
+		return
+	}
+	hash, err := curBlock.GetHash()
+	if err != nil {
+		e.Cancel(fmt.Errorf("Error hashing latest block"))
+		return
+	}
+	if bytes.Compare(hash, blockState.Block.PreviousBlockHash) != 0 {
+		e.Cancel(fmt.Errorf("PreviousBlockHash of received block doesnot match hash of current block"))
+		return
+	}
+	coord.PutBlock(blockHeight, blockState.Block)
+	delta := &statemgmt.StateDelta{}
+	if err := delta.Unmarshal(blockState.StateDelta); nil != err {
+		e.Cancel(fmt.Errorf("Received a corrupt state delta"))
+		return
+	}
+	coord.ApplyStateDelta(msg, delta)
+	if coord.CommitStateDelta(msg) != nil {
+		e.Cancel(fmt.Errorf("Played state forward, hashes matched, but failed to commit, invalidated state"))
+		return
+	}
+	peerLogger.Infof("Blockchain height grows into %d", coord.GetBlockchainSize())
 }
 
 func (d *Handler) when(stateToCheck string) bool {
