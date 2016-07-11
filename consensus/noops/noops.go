@@ -271,9 +271,10 @@ func (i *Noops) getBlockData() (*pb.Block, *statemgmt.StateDelta, error) {
 func (i *Noops) notifyBlockAdded(block *pb.Block, delta *statemgmt.StateDelta) error {
 	//make Payload nil to reduce block size..
 	//anything else to remove .. do we need StateDelta ?
-	for _, tx := range block.Transactions {
-		tx.Payload = nil
-	}
+	// TODO if we remove Payload, block hash won't match
+	//for _, tx := range block.Transactions {
+	//	tx.Payload = nil
+	//}
 	data, err := proto.Marshal(&pb.BlockState{Block: block, StateDelta: delta.Marshal()})
 	if err != nil {
 		return fmt.Errorf("Fail to marshall BlockState structure: %v", err)
