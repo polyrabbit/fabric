@@ -244,6 +244,8 @@ func (d *Handler) beforePeers(e *fsm.Event) {
 }
 
 func (d *Handler) beforeBlockAdded(e *fsm.Event) {
+	d.chatMutex.Lock()
+	defer d.chatMutex.Unlock()
 	peerLogger.Debugf("Received message: %s", e.Event)
 	msg, ok := e.Args[0].(*pb.Message)
 	if !ok {
