@@ -234,6 +234,59 @@ func (i *Noops) getTxFromMsg(msg *pb.Message) (*pb.Transaction, error) {
 	return txs.GetTransactions()[0], nil
 }
 
+func (i *Noops) getBlockData() (*pb.Block, *statemgmt.StateDelta, error) {
+	ledger, err := ledger.GetLedger()
+	if err != nil {
+		return nil, nil, fmt.Errorf("Fail to get the ledger: %v", err)
+	}
+
+	blockHeight := ledger.GetBlockchainSize()
+	if logger.IsEnabledFor(logging.DEBUG) {
+		logger.Debugf("Preparing to broadcast with block number %v", blockHeight)
+	}
+	block, err := ledger.GetBlockByNumber(blockHeight - 1)
+	if nil != err {
+		return nil, nil, err
+	}
+	//delta, err := ledger.GetStateDeltaBytes(blockHeight)
+	delta, err := ledger.GetStateDelta(blockHeight - 1)
+	if nil != err {
+		return nil, nil, err
+	}
+	if logger.IsEnabledFor(logging.DEBUG) {
+		logger.Debugf("Got the delta state of block number %v", blockHeight)
+	}
+
+	return block, delta, nil
+}
+
+func (i *Noops) notifyBlockAdded(block *pb.Block, delta *statemgmt.StateDelta) error {
+	//make Payload nil to reduce block size..
+	//anything else to remove .. do we need StateDelta ?
+	// TODO if we remove Payload, block hash won't match
+	//for _, tx := range block.Transactions {
+	//	tx.Payload = nil
+	//}
+	data, err := proto.Marshal(&pb.BlockState{Block: block, StateDelta: delta.Marshal()})
+	if err != nil {
+		return fmt.Errorf("Fail to marshall BlockState structure: %v", err)
+	}
+	if logger.IsEnabledFor(logging.DEBUG) {
+		logger.Debug("Broadcasting Message_SYNC_BLOCK_ADDED to non-validators")
+	}
+
+	// Broadcast SYNC_BLOCK_ADDED to connected NVPs
+	// VPs already know about this newly added block since they participate
+	// in the execution. That is, they can compare their current block with
+	// the network block
+	msg := &pb.Message{Type: pb.Message_SYNC_BLOCK_ADDED,
+		Payload: data, Timestamp: util.CreateUtcTimestamp()}
+	if errs := i.stack.Broadcast(msg, pb.PeerEndpoint_NON_VALIDATOR); nil != errs {
+		return fmt.Errorf("Failed to broadcast with errors: %v", errs)
+	}
+	return nil
+}
+
 // Executed is called whenever Execute completes, no-op for noops as it uses the legacy synchronous api
 func (i *Noops) Executed(tag interface{}) {
 	// Never called
