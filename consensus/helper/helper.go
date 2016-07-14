@@ -29,7 +29,9 @@ import (
 	"github.com/hyperledger/fabric/core/chaincode"
 	crypto "github.com/hyperledger/fabric/core/crypto"
 	"github.com/hyperledger/fabric/core/ledger"
+	"github.com/hyperledger/fabric/core/ledger/statemgmt"
 	"github.com/hyperledger/fabric/core/peer"
+	"github.com/hyperledger/fabric/core/util"
 	pb "github.com/hyperledger/fabric/protos"
 )
 
@@ -226,9 +228,14 @@ func (h *Helper) CommitTxBatch(id interface{}, metadata []byte) (*pb.Block, erro
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get the block at the head of the chain: %v", err)
 	}
+	delta, err := ledger.GetStateDelta(size - 1)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get the delta state at the head of the chain: %v", err)
+	}
 
 	logger.Debugf("Committed block with %d transactions, intended to include %d", len(block.Transactions), len(h.curBatch))
 
+	go h.notifyBlockAdded(block, delta)
 	return block, nil
 }
 
@@ -386,3 +393,28 @@ func (h *Helper) Start() {}
 
 // Halt is a byproduct of the consensus API needing some cleaning, for now it's a no-op
 func (h *Helper) Halt() {}
+
+func (h *Helper) notifyBlockAdded(block *pb.Block, delta *statemgmt.StateDelta) error {
+	//make Payload nil to reduce block size..
+	//anything else to remove .. do we need StateDelta ?
+	// TODO if we remove Payload, block hash won't match
+	//for _, tx := range block.Transactions {
+	//	tx.Payload = nil
+	//}
+	data, err := proto.Marshal(&pb.BlockState{Block: block, StateDelta: delta.Marshal()})
+	if err != nil {
+		return fmt.Errorf("Fail to marshall BlockState structure: %v", err)
+	}
+	logger.Debug("Broadcasting Message_SYNC_BLOCK_ADDED to non-validators")
+
+	// Broadcast SYNC_BLOCK_ADDED to connected NVPs
+	// VPs already know about this newly added block since they participate
+	// in the execution. That is, they can compare their current block with
+	// the network block
+	msg := &pb.Message{Type: pb.Message_SYNC_BLOCK_ADDED,
+		Payload: data, Timestamp: util.CreateUtcTimestamp()}
+	if errs := h.Broadcast(msg, pb.PeerEndpoint_NON_VALIDATOR); nil != errs {
+		return fmt.Errorf("Failed to broadcast with errors: %v", errs)
+	}
+	return nil
+}

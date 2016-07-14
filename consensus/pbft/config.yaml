@@ -23,7 +23,7 @@ general:
     # re-processed in a view change. A smaller checkpoint period will decrease
     # the amount of time required to recover from an error, but will decrease
     # overall throughput in normal case operation.
-    K: 10
+    K: 2
 
     # Affects the receive log size which is K * logmultiplier
     # The primary will only send sequence numbers which fall within K * logmultiplier/2 of
