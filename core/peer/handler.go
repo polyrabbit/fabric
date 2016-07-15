@@ -221,9 +221,9 @@ func (d *Handler) initiateSync(blockNumber uint64, blockHash []byte, peerID *pb.
 		return nil, true
 	}
 	if d.Coordinator.GetBlockchainSize() < blockNumber+1 {
-		peerLogger.Debugf("Initiating state transfer from %s, for block %d - %d",
-			peerID, d.Coordinator.GetBlockchainSize(), blockNumber)
+		peerLogger.Debugf("Initiating state transfer from %s, syncing to block #%d", peerID.Name, blockNumber)
 		// TODO try recoverable
+		// SyncToTarget means syncing a range of blocks
 		return StateSyncer.SyncToTarget(blockNumber, blockHash, []*pb.PeerID{peerID})
 	}
 	peerLogger.Debugf("My blockchain is the same as %s's", peerID.Name)
@@ -288,6 +288,7 @@ func (d *Handler) beforeBlockAdded(e *fsm.Event) {
 		e.Cancel(fmt.Errorf("VP shouldn't receive SYNC_BLOCK_ADDED"))
 		return
 	}
+	// TODO take advantage of statetransfer instead of doing it again
 	// Add the block and any delta state to the ledger
 	blockState := &pb.BlockState{}
 	err := proto.Unmarshal(msg.Payload, blockState)
