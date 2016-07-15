@@ -54,6 +54,7 @@ import (
 	"github.com/hyperledger/fabric/core/crypto"
 	"github.com/hyperledger/fabric/core/ledger/genesis"
 	"github.com/hyperledger/fabric/core/peer"
+	"github.com/hyperledger/fabric/core/peer/statetransfer"
 	"github.com/hyperledger/fabric/core/rest"
 	"github.com/hyperledger/fabric/core/system_chaincode"
 	"github.com/hyperledger/fabric/events/producer"
@@ -492,7 +493,6 @@ func serve(args []string) error {
 
 	registerChaincodeSupport(chaincode.DefaultChain, grpcServer, secHelper)
 
-	// This peer that connected to various remote peers
 	var peerServer *peer.PeerImpl
 
 	// Create the peerServer
@@ -507,6 +507,11 @@ func serve(args []string) error {
 	} else {
 		logger.Debug("Running as non-validating peer")
 		peerServer, err = peer.NewPeerWithHandler(secHelperFunc, peer.NewPeerHandler)
+		syncer := statetransfer.NewCoordinatorImpl(peerServer)
+		syncer.Start()
+		defer syncer.Stop()
+		// Need to inject state transfer into peer, otherwise peer will depends on statetansfer
+		peer.StateSyncer = syncer
 	}
 
 	if err != nil {

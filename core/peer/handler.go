@@ -30,6 +30,10 @@ import (
 	pb "github.com/hyperledger/fabric/protos"
 )
 
+var syncMutex = &sync.Mutex{}
+// Cannot initiate a statetransfer here, because that will case a import cycle
+var StateSyncer Syncer   // State transfer instance for NVP
+
 // Handler peer handler implementation.
 type Handler struct {
 	chatMutex                     sync.Mutex
@@ -44,6 +48,12 @@ type Handler struct {
 	snapshotRequestHandler        *syncStateSnapshotRequestHandler
 	syncStateDeltasRequestHandler *syncStateDeltasHandler
 	syncBlocksRequestHandler      *syncBlocksRequestHandler
+}
+
+// Syncer is used to initiate state transfer.  Start must be called before use, and Stop should be called to free allocated resources
+type Syncer interface {
+	// SyncToTarget attempts to move the state to the given target, returning an error, and whether this target might succeed if attempted at a later time
+	SyncToTarget(blockNumber uint64, blockHash []byte, peerIDs []*pb.PeerID) (error, bool)
 }
 
 // NewPeerHandler returns a new Peer handler
@@ -197,7 +207,27 @@ func (d *Handler) beforeHello(e *fsm.Event) {
 			}
 		}
 		go d.start()
+		go d.initiateSync(
+			helloMessage.BlockchainInfo.Height-1,
+			helloMessage.BlockchainInfo.CurrentBlockHash,
+			helloMessage.PeerEndpoint.ID)
 	}
+}
+
+func (d *Handler) initiateSync(blockNumber uint64, blockHash []byte, peerID *pb.PeerID) (error, bool) {
+	syncMutex.Lock()
+	defer syncMutex.Unlock()
+	if ValidatorEnabled() {
+		return nil, true
+	}
+	if d.Coordinator.GetBlockchainSize() < blockNumber+1 {
+		peerLogger.Debugf("Initiating state transfer from %s, for block %d - %d",
+			peerID, d.Coordinator.GetBlockchainSize(), blockNumber)
+		// TODO try recoverable
+		return StateSyncer.SyncToTarget(blockNumber, blockHash, []*pb.PeerID{peerID})
+	}
+	peerLogger.Debugf("My blockchain is the same as %s's", peerID.Name)
+	return nil, true
 }
 
 func (d *Handler) beforeGetPeers(e *fsm.Event) {
@@ -252,6 +282,8 @@ func (d *Handler) beforeBlockAdded(e *fsm.Event) {
 		e.Cancel(fmt.Errorf("Received unexpected message type"))
 		return
 	}
+	syncMutex.Lock()
+	defer syncMutex.Unlock()
 	if ValidatorEnabled() {
 		e.Cancel(fmt.Errorf("VP shouldn't receive SYNC_BLOCK_ADDED"))
 		return
