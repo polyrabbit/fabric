@@ -310,6 +310,11 @@ func (p *PeerImpl) GetPeers() (*pb.PeersMessage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Error getting peers: %s", err)
 		}
+//		peerLogger.Debugf("PeerEndpoint type: %v", peerEndpoint.Type)
+//		peerLogger.Debugf("PeerEndpoint: %v", peerEndpoint)
+//		if pb.PeerEndpoint_VALIDATOR == peerEndpoint.Type {
+//			
+//		}
 		peers = append(peers, &peerEndpoint)
 	}
 	peersMessage := &pb.PeersMessage{Peers: peers}

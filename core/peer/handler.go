@@ -231,11 +231,34 @@ func (d *Handler) initiateSync(blockNumber uint64, blockHash []byte, peerID *pb.
 }
 
 func (d *Handler) beforeGetPeers(e *fsm.Event) {
+	peerEndpoint, err := d.To()
+	if err != nil {
+		e.Cancel(fmt.Errorf("Get peer endpoint for handler error: %s", err))
+		return
+	}
+	if pb.PeerEndpoint_NON_VALIDATOR == peerEndpoint.Type {
+		peerLogger.Debug("No need for NVP to get other peers in network")
+		e.Cancel()
+		return
+	}
+	if !ValidatorEnabled() {
+		peerLogger.Debug("I'm NVP, no need to get peers from the network")
+		e.Cancel()
+		return
+	}
 	peersMessage, err := d.Coordinator.GetPeers()
 	if err != nil {
 		e.Cancel(fmt.Errorf("Error Getting Peers: %s", err))
 		return
 	}
+	peers := []*pb.PeerEndpoint{}
+	//Filter out NVP, send VPs only
+	for _, peerEndpoint := range peersMessage.Peers {
+		if peerEndpoint.Type == pb.PeerEndpoint_VALIDATOR {
+			peers = append(peers, peerEndpoint)
+		}
+	}
+	peersMessage = &pb.PeersMessage{Peers: peers}
 	data, err := proto.Marshal(peersMessage)
 	if err != nil {
 		e.Cancel(fmt.Errorf("Error Marshalling PeersMessage: %s", err))
@@ -264,6 +287,21 @@ func (d *Handler) beforePeers(e *fsm.Event) {
 	}
 
 	peerLogger.Debugf("Received PeersMessage with Peers: %s", peersMessage)
+	if !ValidatorEnabled() {
+		peerLogger.Debug("I'm NVP, I should not get peers from network")
+		e.Cancel()
+		return
+	}
+	peerEndpoint, err := d.To()
+	if err != nil {
+		e.Cancel(fmt.Errorf("Get peer endpoint for handler error: %s", err))
+		return
+	}
+	if pb.PeerEndpoint_NON_VALIDATOR == peerEndpoint.Type {
+		peerLogger.Debug("I'm VP, I don't expect to get peers msg from NVP")
+		e.Cancel()
+		return
+	}
 	d.Coordinator.PeersDiscovered(peersMessage)
 
 	// // Can be used to demonstrate Broadcast function
