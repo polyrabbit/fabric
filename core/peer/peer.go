@@ -42,6 +42,7 @@ import (
 	"github.com/hyperledger/fabric/core/ledger/statemgmt/state"
 	"github.com/hyperledger/fabric/core/util"
 	pb "github.com/hyperledger/fabric/protos"
+	"github.com/hyperledger/fabric/core/chaincode"
 )
 
 // Peer provides interface for a peer
@@ -296,6 +297,20 @@ func (p *PeerImpl) ProcessTransaction(ctx context.Context, tx *pb.Transaction) (
 			}
 		}
 
+	} else if tx.Type == pb.Transaction_CHAINCODE_QUERY {
+		// If this is just a chaincod query transaction, we can do it locally for NVP
+		peerLogger.Debugf("NVP processing CHAINCODE QUERY, tx uuid = %s", tx.Uuid)
+		cxt := context.Background()
+		//query will ignore events as these are not stored on ledger (and query can report
+		//"event" data synchronously anyway)
+		result, _, err := chaincode.Execute(cxt, chaincode.GetChain(chaincode.DefaultChain), tx)
+		if err != nil {
+			response = &pb.Response{Status: pb.Response_FAILURE,
+				Msg: []byte(fmt.Sprintf("Error:%s", err))}
+		} else {
+			response = &pb.Response{Status: pb.Response_SUCCESS, Msg: result}
+		}
+		return response, err
 	}
 	return p.ExecuteTransaction(tx), err
 }
