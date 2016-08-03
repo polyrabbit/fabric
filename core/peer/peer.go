@@ -42,6 +42,7 @@ import (
 	"github.com/hyperledger/fabric/core/ledger/statemgmt/state"
 	"github.com/hyperledger/fabric/core/util"
 	pb "github.com/hyperledger/fabric/protos"
+	"github.com/hyperledger/fabric/core/chaincode"
 )
 
 // Peer provides interface for a peer
@@ -490,6 +491,19 @@ func (p *PeerImpl) Unicast(msg *pb.Message, receiverHandle *pb.PeerID) error {
 
 // SendTransactionsToPeer forwards transactions to the specified peer address.
 func (p *PeerImpl) SendTransactionsToPeer(peerAddress string, transaction *pb.Transaction) (response *pb.Response) {
+	if !p.isValidator && transaction.Type == pb.Transaction_CHAINCODE_QUERY {
+		// If this is just a chaincode query transaction, we can do it locally for NVP
+		peerLogger.Debugf("NVP processing CHAINCODE QUERY, tx uuid = %s", transaction.Uuid)
+		cxt := context.Background()
+		result, _, err := chaincode.Execute(cxt, chaincode.GetChain(chaincode.DefaultChain), transaction)
+		if err != nil {
+			response = &pb.Response{Status: pb.Response_FAILURE,
+				Msg: []byte(fmt.Sprintf("Error:%s", err))}
+		} else {
+			response = &pb.Response{Status: pb.Response_SUCCESS, Msg: result}
+		}
+		return response
+	}
 	conn, err := NewPeerClientConnectionWithAddress(peerAddress)
 	if err != nil {
 		return &pb.Response{Status: pb.Response_FAILURE, Msg: []byte(fmt.Sprintf("Error creating client to peer address=%s:  %s", peerAddress, err))}
